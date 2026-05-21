@@ -1,6 +1,6 @@
 import os
 import logging
-from telegram import Update
+from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from openai import OpenAI
 import tempfile
@@ -15,92 +15,109 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 
 user_levels = {}
 
-SYSTEM_PROMPT = """Jesteś doświadczonym lektorem języka polskiego dla osób rosyjskojęzycznych.
+SYSTEM_PROMPT = """Jestes doswiadczonym lektorem jezyka polskiego dla osob rosyjskojezycznych. Twoja rola to prowadzic konwersacje po polsku, poprawiac bledy i uczyc prawidlowego uzywania jezyka.
 
-NAJWAŻNIEJSZA ZASADA: Poprawiaj TYLKO rzeczywiste błędy. Jeśli zdanie jest poprawne - pochwal i zadaj pytanie.
+ZASADY OGOLNE:
+- Poprawiaj TYLKO rzeczywiste bledy. Jesli zdanie jest poprawne - pochwal krotko i zadaj nastepne pytanie.
+- Wyjasnienia do bledow pisz po rosyjsku - to pomaga uczniom lepiej zrozumiec.
+- Badz przyjazny i motywujacy.
 
-TYPOWE BŁĘDY ROSJAN - zawsze poprawiaj:
-1. Kalki z rosyjskiego:
-   - "futbol/football" → "piłka nożna"
-   - "zajmować się sportem" → "uprawiać sport"
-   - "chodzić na spacer" → "iść na spacer" lub "spacerować"
-   - "robić gimnastykę" → "ćwiczyć" lub "uprawiać gimnastykę"
-   - "w wolnym czasie" → poprawne!
-   - "interesować się czymś" → poprawne!
-   - "tak naprawdę" → poprawne!
+GRAMATYKA - co sprawdzac:
 
-2. Przyimki:
-   - "na spacer" (nie "na spacerze" gdy mówimy o czynności)
-   - "grać w tenisa/piłkę nożną" (nie "grać tenis")
-   - "chodzić do kina/teatru" (nie "chodzić w kino")
+1. PRZYPADKI:
+- Dopelniacz: po nie ma, nie lubic, szukac. Przyklad: nie ma czasu (nie: nie ma czas)
+- Biernik: po lubic, kochac, widziec, miec. Przyklad: lubie tenisa (nie: lubie tenis)
+- Narzednik: po byc, zostac, z. Przyklad: jestem nauczycielem (nie: jestem nauczyciel)
+- Miejscownik: po mowic o, w miejscu. Przyklad: mieszkam w Warszawie, mowie o bracie
 
-3. Przypadki:
-   - po "lubię" → biernik (lubię tenisa, nie "lubię tenis")
-   - po "nie ma" → dopełniacz
+2. CZASOWNIKI:
+- Aspekt: przeczytalam ksiazke (dokonany, zakonczony) vs czytalam ksiazke (niedokonany, w trakcie)
+- Koniugacja: ja ide, ty idziesz, on idzie, my idziemy, wy idziecie, oni ida
 
-4. Słownictwo sportowe:
-   - "futbol" nie istnieje po polsku → "piłka nożna"
-   - "siłownia" (nie "sala sportowa" gdy mówimy o gym)
-   - "basen" (nie "pływalnia" w mowie potocznej - choć oba poprawne)
+3. RODZAJ:
+- Meski: dobry brat, ten stol
+- Zenski: dobra siostra, ta ksiazka
+- Nijaki: dobre dziecko, to miasto
+
+4. PRZYIMKI:
+- do + dopelniacz: ide do szkoly, do domu
+- w + miejscownik: mieszkam w Warszawie
+- na + biernik (kierunek): ide na spacer
+- na + miejscownik (miejsce): jestem na wakacjach
+- z + narzednik: ide z mama
+
+TYPOWE BLEDY ROSJAN - zawsze poprawiaj:
+- futbol nie istnieje po polsku - pilka nozna
+- zajmowac sie sportem - uprawiac sport
+- chodzic w kino - chodzic do kina
+- u mnie jest pies - mam psa
+- grac tenis - grac w tenisa
+- interesowac sie czyms - POPRAWNE
+- tak naprawde - POPRAWNE
+- w wolnym czasie - POPRAWNE
 
 POZIOMY:
-- A1/A2: proste pytania o codzienne życie, rodzinę, hobby
-- B1/B2: bardziej złożone tematy, opinie, plany
-- C1: zaawansowane dyskusje
+- A1: przedstawienie sie, rodzina, liczby, podstawowe czynnosci
+- A2: codzienne zycie, hobby, jedzenie, czas wolny
+- B1: opinie, plany, przeszlosc, przyszlosc
+- B2: abstrakcyjne tematy, argumentowanie, idiomy
+- C1: zaawansowane dyskusje, niuanse jezykowe
 
-Format gdy BRAK błędów:
-✅ Brawo! (krótka pochwała)
-❓ Następne pytanie
+FORMAT gdy brak bledow:
+Brawo! [pochwala 1 zdanie]
+[Nastepne pytanie]
 
-Format gdy SĄ błędy:
-✅ Co było dobrze
-❌ Błąd → poprawka. Wyjaśnienie po rosyjsku (1-2 zdania)
-❓ Następne pytanie
-POZIOMY:
-- A1/A2: proste pytania o codzienne życie, rodzinę, hobby
-- B1/B2: bardziej złożone tematy, opinie, plany
-- C1: zaawansowane dyskusje
-
-Format odpowiedzi gdy BRAK błędów:
-✅ Brawo! (krótka pochwała)
-❓ Następne pytanie
-
-Format odpowiedzi gdy SĄ błędy:
-✅ Co było dobrze
-❌ Błąd + poprawka + krótkie wyjaśnienie po rosyjsku
-❓ Następne pytanie"""
+FORMAT gdy sa bledy:
+Dobrze: [co bylo poprawne]
+Blad: [bledna forma] - powinno byc [poprawna forma]
+Po rosyjsku: [wyjasnienie zasady]
+[Nastepne pytanie]"""
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_levels[user_id] = None
+
+    keyboard = [
+        [KeyboardButton("A1 - начинающий"), KeyboardButton("A2 - элементарный")],
+        [KeyboardButton("B1 - средний"), KeyboardButton("B2 - выше среднего")],
+        [KeyboardButton("C1 - продвинутый")]
+    ]
+    reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+
     await update.message.reply_text(
-        "Cześć! 👋 Я ваш помощник для практики польского языка!\n\n"
-        "Для начала — какой у вас уровень польского?\n\n"
-        "Напишите один из вариантов:\n"
-        "🟢 *A1* — начинающий\n"
-        "🟡 *A2* — элементарный\n"
-        "🟠 *B1* — средний\n"
-        "🔵 *B2* — выше среднего\n"
-        "🟣 *C1* — продвинутый",
-        parse_mode="Markdown"
+        "Czesc! Jestem Twoim pomocnikiem do praktyki jezyka polskiego!\n\n"
+        "Wybierz swoj poziom:",
+        reply_markup=reply_markup
     )
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    text = update.message.text.strip().upper()
+    text = update.message.text.strip()
 
-    if text in ["A1", "A2", "B1", "B2", "C1"]:
-        user_levels[user_id] = text
+    level_map = {
+        "A1 - начинающий": "A1",
+        "A2 - элементарный": "A2",
+        "B1 - средний": "B1",
+        "B2 - выше среднего": "B2",
+        "C1 - продвинутый": "C1",
+        "A1": "A1", "A2": "A2", "B1": "B1", "B2": "B2", "C1": "C1"
+    }
+
+    if text in level_map:
+        level = level_map[text]
+        user_levels[user_id] = level
+
+        from telegram import ReplyKeyboardRemove
         await update.message.reply_text(
-            f"Отлично! Уровень *{text}* установлен. Начинаем практику! 🎯\n\n"
-            f"Буду задавать вам вопросы на польском, а вы отвечайте — текстом или голосовым сообщением.",
-            parse_mode="Markdown"
+            "Swietnie! Poziom " + level + " ustawiony. Zaczynamy!\n\n"
+            "Odpowiadaj tekstem lub wiadomoscia glosowa.",
+            reply_markup=ReplyKeyboardRemove()
         )
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": f"Уровень ученика: {text}. Задай первый вопрос для практики говорения."}
+                {"role": "user", "content": "Poziom ucznia: " + level + ". Zadaj pierwsze pytanie."}
             ]
         )
         await update.message.reply_text(response.choices[0].message.content)
@@ -108,16 +125,14 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     level = user_levels.get(user_id)
     if not level:
-        await update.message.reply_text(
-            "Сначала укажите ваш уровень: A1, A2, B1, B2 или C1"
-        )
+        await update.message.reply_text("Najpierw wybierz poziom - wpisz /start")
         return
 
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": f"Уровень ученика: {level}. Ответ ученика: {text}. Проверь и задай следующий вопрос."}
+            {"role": "user", "content": "Poziom ucznia: " + level + ". Odpowiedz ucznia: " + text + ". Sprawdz i zadaj nastepne pytanie."}
         ]
     )
     await update.message.reply_text(response.choices[0].message.content)
@@ -127,12 +142,10 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     level = user_levels.get(user_id)
 
     if not level:
-        await update.message.reply_text(
-            "Сначала укажите ваш уровень: A1, A2, B1, B2 или C1"
-        )
+        await update.message.reply_text("Najpierw wybierz poziom - wpisz /start")
         return
 
-    await update.message.reply_text("🎧 Слушаю ваше сообщение...")
+    await update.message.reply_text("Slucham...")
 
     voice = update.message.voice
     file = await context.bot.get_file(voice.file_id)
@@ -149,13 +162,13 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     transcribed_text = transcript.text
-    await update.message.reply_text(f"🗣 Вы сказали: *{transcribed_text}*", parse_mode="Markdown")
+    await update.message.reply_text("Powiedziales: " + transcribed_text)
 
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": f"Уровень ученика: {level}. Ответ ученика (из голосового): {transcribed_text}. Проверь и задай следующий вопрос."}
+            {"role": "user", "content": "Poziom ucznia: " + level + ". Odpowiedz ucznia (glosowa): " + transcribed_text + ". Sprawdz i zadaj nastepne pytanie."}
         ]
     )
     await update.message.reply_text(response.choices[0].message.content)
