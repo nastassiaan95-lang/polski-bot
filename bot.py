@@ -55,7 +55,7 @@ Format gdy BRAK błędów:
 Format gdy SĄ błędy:
 ✅ Co było dobrze
 ❌ Błąd → poprawka. Wyjaśnienie po rosyjsku (1-2 zdania)
-❓ Następne pytanie"""
+❓ Następne pytanie
 POZIOMY:
 - A1/A2: proste pytania o codzienne życie, rodzinę, hobby
 - B1/B2: bardziej złożone tematy, opinie, plany
